@@ -4,7 +4,6 @@ pragma solidity ^0.8.10;
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "hardhat/console.sol";
-
 import {Base64} from "./libraries/Base64.sol";
 import {StringUtils} from "./libraries/StringUtils.sol";
 
@@ -12,6 +11,11 @@ contract Domains is ERC721URIStorage {
     using Counters for Counters.Counter;
     Counters.Counter private _tokenIds; // state variable that helps in setting a unique id foor our NFT
 
+    error Unauthorized(string);
+    error AlreadyRegistered();
+    error InvalidName(string);
+    
+    address payable public owner;
     string tld; // top level domain like .eth, .sol etc
     uint public price;
 
@@ -20,11 +24,18 @@ contract Domains is ERC721URIStorage {
     string svgP2 = '</text></svg>';
     string[] userData; // array of data to which the domain points or redirects
 
-    mapping(string => address) public domains; // user's domain name => domain owner's address
-    mapping(string => string[]) public records; // user's domain name => data 
+    mapping(string => address) public domains; // user's domain name => user's address
+    mapping(string => string) public records; // domain name => data
+    mapping(uint => string) public names; // idx value => domain name
+    
+    modifier onlyOwner() {
+        require(msg.sender == owner,"Domains: Only owner can access this");
+        _;
+    }
 
     constructor(string memory _tld) payable ERC721("Shine Name Service", "SNS") {
-        console.log("Welcome to namify domain service");
+        owner = payable(msg.sender);
+        console.log("Welcome to shine name service");
         tld = _tld;
         console.log("Top-level domain is set as:",tld);
     }
@@ -34,27 +45,34 @@ contract Domains is ERC721URIStorage {
         require(len != 0, "Domains: Enter a valid domain name");
         
         if(len <= 3) {
-            price = 2 * 10**17; // 0.8 MATIC
-        } else if(len > 3 && len <= 5) {
-            price = 1 * 10**17; // 0.7 MATIC
+            price = 5 * 10**17; // 0.5 MATIC
+        } else if(len > 3 && len <= 4) {
+            price = 3 * 10**17; // 0.3 MATIC
         } else {
-            price = 1 * 10**18; // 1 MATIC
+            price = 1 * 10**17; // 0.1 MATIC
         }
 
         return price;
     }
 
     function register(string calldata name) public payable {
-        require(domains[name] == address(0), "Domains: Domain name already taken");
-
+        //require(domains[name] == address(0), "Domains: Domain name already taken");
+        if(domains[name] != address(0)) revert AlreadyRegistered();
+        //require(isValid(name), "Domains: Domain name too long");
+        if(!isValid(name)) revert InvalidName(name);
         uint cost = domainPrice(name);
-
+        console.log("calculated price",cost);
+        
         require(msg.value >= cost, "Domains: Insufficient Matic paid");
+        console.log("minting domain");
         
         // strings cannot be combined directly, abi.encodePacked converts them into bytes and then combines them
         string memory _name = string(abi.encodePacked(name, ".", tld));
+       
         string memory finalSvg = string(abi.encodePacked(svgP1, _name, svgP2)); // combining domain name with svg eg. <svg>my domain</svg>
+        
         uint newRecordId = _tokenIds.current();
+
         uint length = StringUtils.strlen(name);
         string memory strLen = Strings.toString(length);
 
@@ -73,30 +91,52 @@ contract Domains is ERC721URIStorage {
             )
           );
           
-          string memory finalTokenUri = string( abi.encodePacked("data:application/json;base64,", json));
-
-        _safeMint(msg.sender, newRecordId);
-        _setTokenURI(newRecordId, finalTokenUri);
-        console.log("\n--------------------------------------------------------");
-        console.log("Final token uri for this nft is: ", finalTokenUri);
-        domains[name] = msg.sender;
-        console.log("\n--------------------------------------------------------");
-
+          string memory finalTokenUri = string(abi.encodePacked("data:application/json;base64,", json));
+          _safeMint(msg.sender, newRecordId);
+          _setTokenURI(newRecordId, finalTokenUri);
+          console.log("\n--------------------------------------------------------");
+          console.log("Final token uri for this nft is: ", finalTokenUri);
+          domains[name] = msg.sender;
+          console.log("\n--------------------------------------------------------");
+          
+         names[newRecordId] = _name; // store domain name at index = id in 'names' mapping 
         _tokenIds.increment();
 
         console.log(msg.sender," Your domain has been registered");
+    }
+    
+    function attachDataToDomain(string calldata name, string memory data) public {
+        //require(domains[name] == msg.sender, "Domains: Only owner of domain can add data!!");
+        if(domains[name] != msg.sender) revert Unauthorized("Only owner of domain can add data!!");
+        records[name] = data;
+    }
+
+    function withdraw() public onlyOwner {
+        uint amount = address(this).balance;
+
+        (bool success,) = msg.sender.call{value: amount}("");
+        require(success, "Failed to withdraw Matic");
+    }
+
+    function isValid(string calldata name) public pure returns(bool) {
+        return StringUtils.strlen(name) >= 3 && StringUtils.strlen(name) < 10;
+    }
+
+    function getAllNames() public view returns(string[] memory) {
+        string[] memory allNames = new string[](_tokenIds.current());
+
+        for(uint i = 0; i < _tokenIds.current(); i++) {
+            allNames[i] = names[i];
+            console.log("%s is the domain name at id %d", allNames[i], i);
+        }
+        return allNames;
     }
 
     function getDomain(string calldata name) public view returns(address) {
         return domains[name];
     }
 
-    function attachDataToDomain(string calldata name, string[] memory data) public {
-        require(domains[name] == msg.sender, "Domains: Only owner of domain can add data!!");
-        records[name] = data;
-    }
-
-    function getData(string calldata name) public view returns (string[] memory) {
+    function getData(string calldata name) public view returns (string memory) {
         return records[name];
     }
 

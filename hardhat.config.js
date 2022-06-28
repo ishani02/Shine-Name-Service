@@ -27,7 +27,7 @@ module.exports = {
     hardhat: {},
       polygon_mumbai: {
         url: MUMBAI_ALCHEMY_API_URL, // YOUR_ALCHEMY_MUMBAI_URL
-        accounts: [`0x${PRIVATE_KEY}`], // YOUR_TEST_WALLET_PRIVATE_KEY
+        accounts: [`0x${PRIVATE_KEY}`], // YOUR_TEST_WALLET_PRIVATE_KEY,
       },
     },
   }
